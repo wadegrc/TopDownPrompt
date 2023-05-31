@@ -51,7 +51,6 @@ class Prompt(NormalNN):
         # Multi-GPU
         if len(self.config['gpuid']) > 1:
             #print(dict(self.model.module.feat.named_parameters()))
-            print(self.model.module.feat.prompt.is_leaf)
             params_to_opt = [self.model.module.feat.prompt] + list(self.model.module.feat.decoders.parameters()) + [self.model.module.feat.top_down_transform] + list(self.model.module.last.parameters())
             #params_to_opt = list(self.model.module.feat.prompt) + list(self.model.module.feat.decoders.parameters()) + list(self.model.module.last.parameters())
             #params_to_opt = list(self.model.module.feat.decoders.parameters())  + list(self.model.module.last.parameters())

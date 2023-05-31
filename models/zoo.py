@@ -284,7 +284,7 @@ class ResNetZoo(nn.Module):
             for k, p in zoo_model.named_parameters():
                     if (k.startswith('decoders') or k.startswith('top_down') or k.startswith('prompt') or k.startswith('norm')) == False:
                         freeze_parameters(p)
-            print(dict(zoo_model.named_parameters()))
+            #print(dict(zoo_model.named_parameters()))
             zoo_model.load_state_dict(load_dict, False)
 
         # classifier

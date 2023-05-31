@@ -10,7 +10,7 @@ import dataloaders
 from dataloaders.utils import *
 from torch.utils.data import DataLoader
 import learners
-
+from models.utils import freeze_parameters
 class Trainer:
 
     def __init__(self, args, seed, metric_keys, save_keys):
@@ -181,20 +181,32 @@ class Trainer:
 
             # increment task id in prompting modules
             if i > 0:
+                if self.learner.model.module.feat is not None:
+                    #self.learner.model.module.prompt.process_task_count()
+                    self.learner.model.module.feat.process_task_count()
+            """
+            if i > 0:
                 try:
-                    if self.learner.model.module.prompt is not None:
+                    if self.learner.model.module.feat is not None:
                         self.learner.model.module.prompt.process_task_count()
+                        self.learner.model.module.feat.process_task_count()
                 except:
-                    if self.learner.model.prompt is not None:
+                    if self.learner.model.feat is not None:
                         self.learner.model.prompt.process_task_count()
-
+                        self.learner.model.feat.process_task_count()
+            """
             # learn
             self.test_dataset.load_dataset(i, train=False)
             test_loader  = DataLoader(self.test_dataset, batch_size=self.batch_size, shuffle=False, drop_last=False, num_workers=self.workers)
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
-
+            """ 
+            if i >= 0:
+                for k, p in self.learner.model.module.feat.named_parameters():
+                    if k.startswith('decoders'):
+                        freeze_parameters(p[i][j])
+            """
             # save model
             self.learner.save_model(model_save_dir)
             

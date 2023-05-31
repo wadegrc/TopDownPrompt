@@ -91,7 +91,11 @@ class NormalNN(nn.Module):
             batch_timer = Timer()
             for epoch in range(self.config['schedule'][-1]):
                 self.epoch=epoch
-
+                """
+                for name, param in self.model.named_parameters():
+                    if "prompt" in name:
+                        print(param.grad)
+                """
                 if epoch > 0: self.scheduler.step()
                 for param_group in self.optimizer.param_groups:
                     self.log('LR:', param_group['lr'])

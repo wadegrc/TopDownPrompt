@@ -107,6 +107,7 @@ class Decode_Block(nn.Module):
         out = self.linear2(x)
         # out = x
         return x, out
+        #return x, x
 
 
 class VisionTransformer(nn.Module):
@@ -178,10 +179,14 @@ class VisionTransformer(nn.Module):
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim) if not use_fc_norm else nn.Identity()
-        self.decoders = nn.ModuleList([Decode_Block(embed_dim) for _ in range(depth)])
-        self.prompt = torch.nn.Parameter(torch.randn(self.embed_dim))
-        self.top_down_transform = torch.nn.Parameter(torch.eye(self.embed_dim))
-
+        self.decoders = nn.ModuleList([Decode_Block(embed_dim) for _ in range(3)])
+        #self.decoder_list = []
+        #self.decoders = nn.ModuleList([Decode_Block(embed_dim) for _ in range(depth)])
+        self.prompt = torch.nn.Parameter(torch.randn(10, self.embed_dim))
+        self.top_down_transform = torch.nn.Parameter(torch.stack([torch.eye(self.embed_dim) for i in range(10)], dim = 0))
+        #self.prompt = torch.nn.Parameter(torch.randn(self.embed_dim))
+        #self.top_down_transform = torch.nn.Parameter(torch.eye(self.embed_dim))
+        self.task_count = 0
         # Classifier Head
         #self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
         #self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -196,6 +201,11 @@ class VisionTransformer(nn.Module):
         if self.cls_token is not None:
             nn.init.normal_(self.cls_token, std=1e-6)
         named_apply(init_weights_vit_timm, self)
+    
+    def process_task_count(self):
+        self.task_count += 1
+        #self.decoder_list[-1] = self.decoder_list[-1].detach().clone()
+        #self.decoder_list.append(deepcopy(self.decoders))
 
     @torch.jit.ignore
     def no_weight_decay(self):
@@ -238,21 +248,39 @@ class VisionTransformer(nn.Module):
         x = self.patch_embed(x)
         x = self._pos_embed(x)
         B, nt, fd = x.shape
+        """
         for i, blk in enumerate(self.blocks):
             if i < len(self.blocks) - 1:
                 x, visualization_heads = blk(x, td[i] if td is not None else None)
             else:
                 x, visualization_heads = blk(x, td[i] if td is not None else None)
-
+        """
+        for i, blk in enumerate(self.blocks):
+            if i < len(self.blocks) - (len(td) if td is not None else 0):
+                x, visualization_heads = blk(x, None)
+            else:
+                x, visualization_heads = blk(x, td[i-len(self.blocks)+len(td)] if td is not None else None)
 
         x = self.norm(x)
         return x
 
-    def feedback(self, x):
+    def feedback(self, x, i=0):
         td = []
         for depth in range(len(self.decoders) - 1, -1, -1):
             x, out = self.decoders[depth](x)
             td = [out] + td
+        """
+        if i < len(self.decoder_list):
+            for depth in range(len(self.decoder_list[i]) - 1, -1, -1):
+                #self.decoder_list[i][depth].to(x.device)
+                x, out = self.decoder_list[i][depth](x)
+                td = [out] + td
+        else:
+            for depth in range(len(self.decoders) - 1, -1, -1):
+                #self.decoder_list[i][depth].to(x.device)
+                x, out = self.decoders[depth](x)
+                td = [out] + td
+        """
         return td
 
     def forward_head(self, x, pre_logits: bool = False):
@@ -271,11 +299,49 @@ class VisionTransformer(nn.Module):
         #output_each_iter.append(self.forward_head(x))
 
         # feature selection and feedback
+        """ 
         cos_sim = F.normalize(x, dim=-1) @ F.normalize(self.prompt[None, ..., None], dim=1)  # B, N, 1
         mask = cos_sim.clamp(0, 1)
         x = x * mask
         x = x @ self.top_down_transform
         td = self.feedback(x)
+        """
+        x_sum = []
+        for i in range(self.task_count + 1):
+            cos_sim = F.normalize(x, dim=-1) @ F.normalize(self.prompt[i][None, ..., None].detach().clone() if i < self.task_count else self.prompt[i][None, ..., None], dim=1)  # B, N, 1
+            mask = cos_sim.clamp(0, 1)
+            x_ = x * mask
+            x_ = x_ @ (self.top_down_transform[i].detach().clone() if i < self.task_count else self.top_down_transform[i])
+            x_sum.append(x_)
+        
+        
+        x_sum = sum(x_sum) / (self.task_count + 1)
+        #td = self.feedback(x_sum)
+        td = [x_sum for i in range(4)]
+        """
+            if i == 0:
+                td_sum = td
+            else:
+                td_sum = [td_sum[j]+td[j] for j in range(len(td))]
+        td_sum = [td_sum[i] / (self.task_count + 1) for i in range(len(td_sum))]
+        """
+
+        """
+        x_sum = sum(x_sum) / (self.task_count + 1)
+        if self.task_count > 0:
+            cos_sim = F.normalize(x, dim=-1) @ F.normalize(torch.cat((self.prompt[:self.task_count, ..., None], self.prompt[self.task_count:self.task_count+1,..., None])), dim=1)  # B, N, 1
+            mask = cos_sim.clamp(0,1)
+            x = x * mask
+            x = x @ torch.cat((self.top_down_transform[:self.task_count], self.top_down_transform[self.task_count:self.task_count+1], dim = 0))
+        else:
+            cos_sim = F.normalize(x, dim=-1) @ F.normalize(self.prompt[:self.task_count, ..., None], dim=1)  # B, N, 1
+            mask = cos_sim.clamp(0,1)
+            x = x * mask
+            x = x @ self.top_down_transform[:self.task_count]
+        
+        td = self.feedback(torch.sum(x, dim = 0))
+        """
+
 
 
         # second feedforward
