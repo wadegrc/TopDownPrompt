@@ -312,6 +312,7 @@ class iIMAGENET_R(iDataset):
             data_config = yaml.load(open('dataloaders/splits/imagenet-r_train.yaml', 'r'), Loader=yaml.Loader)
         else:
             data_config = yaml.load(open('dataloaders/splits/imagenet-r_test.yaml', 'r'), Loader=yaml.Loader)
+        print("ImageNet_R")
         self.data = data_config['data']
         self.targets = data_config['targets']
 

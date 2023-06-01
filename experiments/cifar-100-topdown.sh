@@ -26,7 +26,7 @@ mkdir -p $OUTDIR
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name TopDownPrompt \
     --prompt_param 100 8 0.1 \
-    --log_dir ${OUTDIR}/coda-p
+    --log_dir ${OUTDIR}/topdown-2
 
 # DualPrompt
 #

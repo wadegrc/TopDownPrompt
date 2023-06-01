@@ -19,7 +19,7 @@ from timm.models.vision_transformer import _cfg
 from torch.nn.modules.utils import _pair
 import sys
 import numpy as np
-
+from .utils import tensor_prompt
 _logger = logging.getLogger(__name__)
 
 
@@ -120,7 +120,7 @@ class VisionTransformer(nn.Module):
             self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, global_pool='token',
             embed_dim=768, depth=12, num_heads=12, mlp_ratio=4., qkv_bias=True, init_values=None,
             class_token=True, no_embed_class=False, fc_norm=None, drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1,
-            weight_init='', embed_layer=PatchEmbed, norm_layer=nn.LayerNorm, act_layer=None, block_fn=Block, truncate_embedding="none"):
+            weight_init='', embed_layer=PatchEmbed, norm_layer=nn.LayerNorm, act_layer=None, block_fn=Block, truncate_embedding="none",key_dim=768):
         """
         Args:
             img_size (int, tuple): input image size
@@ -178,15 +178,21 @@ class VisionTransformer(nn.Module):
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, init_values=init_values,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=act_layer)
             for i in range(depth)])
+        self.n_tasks = 10
         self.norm = norm_layer(embed_dim) if not use_fc_norm else nn.Identity()
-        self.decoders = nn.ModuleList([Decode_Block(embed_dim) for _ in range(3)])
+        self.decoders = nn.ModuleList([nn.ModuleList([Decode_Block(embed_dim) for _ in range(3)]) for _ in range(10)])
         #self.decoder_list = []
         #self.decoders = nn.ModuleList([Decode_Block(embed_dim) for _ in range(depth)])
-        self.prompt = torch.nn.Parameter(torch.randn(10, self.embed_dim))
-        self.top_down_transform = torch.nn.Parameter(torch.stack([torch.eye(self.embed_dim) for i in range(10)], dim = 0))
+        self.prompt = torch.nn.Parameter(torch.randn(self.n_tasks, self.embed_dim))
+        self.top_down_transform = torch.nn.Parameter(torch.stack([torch.eye(self.embed_dim) for i in range(self.n_tasks)], dim = 0))
+        #self.decoders = nn.ModuleList([nn.Linear(self.embed_dim, self.embed_dim, bias = False) for i in range(self.n_tasks)])
         #self.prompt = torch.nn.Parameter(torch.randn(self.embed_dim))
         #self.top_down_transform = torch.nn.Parameter(torch.eye(self.embed_dim))
         self.task_count = 0
+        # 加权
+        self.key_d = key_dim
+        self.k = tensor_prompt(self.n_tasks, self.key_d, ortho = True)
+        self.a = tensor_prompt(self.n_tasks, self.key_d, ortho = True)
         # Classifier Head
         #self.fc_norm = norm_layer(embed_dim) if use_fc_norm else nn.Identity()
         #self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -312,12 +318,43 @@ class VisionTransformer(nn.Module):
             mask = cos_sim.clamp(0, 1)
             x_ = x * mask
             x_ = x_ @ (self.top_down_transform[i].detach().clone() if i < self.task_count else self.top_down_transform[i])
+            x_ = self.decoders[i](x_)
+            x_ = x_.unsqueeze(1)
             x_sum.append(x_)
+        x_sum = torch.cat(x_sum, dim = 1)
+        #print("x_sum:", x_sum.shape)
+        # 加权
+        #pt = int(self.k.shape[0] / (self.n_tasks))
+        """
+        s = int(self.task_count)
+        f = int((self.task_count + 1))
+
+        if self.task_count > 0:
+            K = torch.cat((self.k[:s].detach().clone(), self.k[s:f]), dim = 0)
+            A = torch.cat((self.a[:s].detach().clone(), self.a[s:f]), dim = 0)
+        else:
+            K = self.k[s:f]
+            A = self.a[s:f]
+        
+        # with attention and cosine sim
+        # (b x 1 x d) * soft([1 x k x d]) = (b x k x d) -> attention = k x d
+        #print("x[0]", x[:,0,:].shape)
+        #print("A:", A.shape)
+        a_querry = torch.einsum('bd,kd->bkd', x[:,0,:], A)
+        #print("a_querry:",a_querry.shape)
+        # # (b x k x d) - [1 x k x d] = (b x k) -> key = k x d
+        n_K = nn.functional.normalize(K, dim=1)
+        q = nn.functional.normalize(a_querry, dim=2)
+        aq_k = torch.einsum('bkd,kd->bk', q, n_K)
+        #print("aq_k:", aq_k.shape)
+        ## (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
         
         
-        x_sum = sum(x_sum) / (self.task_count + 1)
+        x_sum = torch.einsum('bk,bkld->bkld', aq_k, x_sum)
+        """
         #td = self.feedback(x_sum)
-        td = [x_sum for i in range(4)]
+        td = torch.sum(x_sum,dim=1)
+        td = [td for i in range(3)]
         """
             if i == 0:
                 td_sum = td
@@ -340,10 +377,12 @@ class VisionTransformer(nn.Module):
             x = x @ self.top_down_transform[:self.task_count]
         
         td = self.feedback(torch.sum(x, dim = 0))
+        loss = ortho_penalty(K)
+        loss += ortho_penalty(A)
+        loss += ortho_penalty(x_sum)
+        loss = 0.1 *loss
         """
-
-
-
+        loss = 0
         # second feedforward
         x = self.forward_features(input, td)
 
@@ -351,7 +390,7 @@ class VisionTransformer(nn.Module):
         output_each_iter.append(x)
         
 
-        return x, None
+        return x, loss
 
     def var_loss(self, in_var, out_var, x):
         recon_loss = []
@@ -362,6 +401,8 @@ class VisionTransformer(nn.Module):
 
         return 0.1*sum(recon_loss)
 
+def ortho_penalty(t):
+    return ((t @t.T - torch.eye(t.shape[0]).cuda())**2).mean() * 1e-6
 
 def init_weights_vit_timm(module: nn.Module, name: str = ''):
     """ ViT weight initialization, original timm impl (for reproducibility) """

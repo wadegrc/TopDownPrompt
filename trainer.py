@@ -201,12 +201,11 @@ class Trainer:
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
-            """ 
             if i >= 0:
-                for k, p in self.learner.model.module.feat.named_parameters():
-                    if k.startswith('decoders'):
-                        freeze_parameters(p[i][j])
-            """
+                for k, p in self.learner.model.module.feat.decoders.named_parameters():
+                    if k.startswith(f'{i+1}.'):
+                        break
+                    freeze_parameters(p)
             # save model
             self.learner.save_model(model_save_dir)
             

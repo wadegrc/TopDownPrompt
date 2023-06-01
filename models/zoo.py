@@ -282,7 +282,7 @@ class ResNetZoo(nn.Module):
             del load_dict['head.weight']; del load_dict['head.bias']
             #zoo_model = build_model(load_dict)
             for k, p in zoo_model.named_parameters():
-                    if (k.startswith('decoders') or k.startswith('top_down') or k.startswith('prompt') or k.startswith('norm')) == False:
+                    if (k.startswith('decoders') or k.startswith('top_down') or k.startswith('prompt') or k.startswith('norm') or k.startswith("k") or k.startswith("a")) == False:
                         freeze_parameters(p)
             #print(dict(zoo_model.named_parameters()))
             zoo_model.load_state_dict(load_dict, False)

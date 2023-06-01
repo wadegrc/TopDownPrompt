@@ -130,7 +130,13 @@ class NormalNN(nn.Module):
                 # reset
                 losses = AverageMeter()
                 acc = AverageMeter()
-                
+        """
+        for name,param in self.model.module.feat.named_parameters():
+            if name.startswith("k") or name.startswith("a") or name.startswith("prompt"):
+                print(f"{name}.grad ",param.grad)
+                print(f"{name}.param ", param)
+                print(f"{name}.requires_grad ", param.requires_grad)
+        """
         self.model.eval()
 
         self.last_valid_out_dim = self.valid_out_dim
@@ -153,9 +159,9 @@ class NormalNN(nn.Module):
     def update_model(self, inputs, targets, target_scores = None, dw_force = None, kd_index = None):
         
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
-        logits = self.forward(inputs)
+        logits, ortho_loss = self.forward(inputs)
         total_loss = self.criterion(logits, targets.long(), dw_cls)
-
+        total_loss += ortho_loss
         self.optimizer.zero_grad()
         total_loss.backward()
         self.optimizer.step()
