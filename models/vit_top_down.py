@@ -272,8 +272,8 @@ class VisionTransformer(nn.Module):
 
     def feedback(self, x, i=0):
         td = []
-        for depth in range(len(self.decoders) - 1, -1, -1):
-            x, out = self.decoders[depth](x)
+        for depth in range(len(self.decoders[i]) - 1, -1, -1):
+            x, out = self.decoders[i][depth](x)
             td = [out] + td
         """
         if i < len(self.decoder_list):
@@ -318,10 +318,11 @@ class VisionTransformer(nn.Module):
             mask = cos_sim.clamp(0, 1)
             x_ = x * mask
             x_ = x_ @ (self.top_down_transform[i].detach().clone() if i < self.task_count else self.top_down_transform[i])
-            x_ = self.decoders[i](x_)
             x_ = x_.unsqueeze(1)
-            x_sum.append(x_)
-        x_sum = torch.cat(x_sum, dim = 1)
+            td  = self.feedback(x_, i)
+            x_sum.append(td)
+        x_sum = [torch.cat([x_sum[j][i] for j in range(len(x_sum))], dim = 1) for i in range(len(x_sum[0]))]
+
         #print("x_sum:", x_sum.shape)
         # 加权
         #pt = int(self.k.shape[0] / (self.n_tasks))
@@ -353,8 +354,7 @@ class VisionTransformer(nn.Module):
         x_sum = torch.einsum('bk,bkld->bkld', aq_k, x_sum)
         """
         #td = self.feedback(x_sum)
-        td = torch.sum(x_sum,dim=1)
-        td = [td for i in range(3)]
+        td = [torch.sum(x_sum[i],dim=1) for i in range(len(x_sum))]
         """
             if i == 0:
                 td_sum = td
