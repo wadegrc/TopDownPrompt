@@ -7,7 +7,7 @@ N_CLASS=200
 OUTDIR=./outputs/${DATASET}/10-task
 
 # hard coded inputs
-GPUID='0 1 2 3'
+GPUID='0 1 2'
 CONFIG=./configs/cifar-100_prompt.yaml
 REPEAT=3
 OVERWRITE=0
@@ -26,7 +26,7 @@ mkdir -p $OUTDIR
 python -u run.py --config $CONFIG --gpuid $GPUID --repeat $REPEAT --overwrite $OVERWRITE \
     --learner_type prompt --learner_name TopDownPrompt \
     --prompt_param 100 8 0.1 \
-    --log_dir ${OUTDIR}/topdown-2
+    --log_dir ${OUTDIR}/topdown-4
 
 # DualPrompt
 #

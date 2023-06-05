@@ -178,12 +178,13 @@ class Trainer:
 
             # load dataloader
             train_loader = DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True, num_workers=int(self.workers))
-
-            # increment task id in prompting modules
+            
             if i > 0:
                 if self.learner.model.module.feat is not None:
                     #self.learner.model.module.prompt.process_task_count()
                     self.learner.model.module.feat.process_task_count()
+
+            # increment task id in prompting modules
             """
             if i > 0:
                 try:
@@ -201,7 +202,9 @@ class Trainer:
             model_save_dir = self.model_top_dir + '/models/repeat-'+str(self.seed+1)+'/task-'+self.task_names[i]+'/'
             if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
             avg_train_time = self.learner.learn_batch(train_loader, self.train_dataset, model_save_dir, test_loader)
-            for i in range(self.learner.model.module.feat.task_count):
+            
+            
+            for i in range(self.learner.model.module.feat.task_count + 1):
                 for k, p in self.learner.model.module.feat.decoders[i].named_parameters():
                     freeze_parameters(p)
             # save model

@@ -282,7 +282,7 @@ class ResNetZoo(nn.Module):
             del load_dict['head.weight']; del load_dict['head.bias']
             #zoo_model = build_model(load_dict)
             for k, p in zoo_model.named_parameters():
-                    if (k.startswith('decoders') or k.startswith('top_down') or k.startswith('prompt') or k.startswith('norm') or k.startswith("k") or k.startswith("a")) == False:
+                    if (k.startswith('top_down') or k.startswith('prompt') or k.startswith('norm') or k.startswith("k") or k.startswith("a") or k.startswith("decoders")) == False:
                         freeze_parameters(p)
             #print(dict(zoo_model.named_parameters()))
             zoo_model.load_state_dict(load_dict, False)
@@ -313,15 +313,18 @@ class ResNetZoo(nn.Module):
             out, prompt_loss = self.feat(x, prompt=self.prompt, q=q, train=train, task_id=self.task_id)
             out = out[:,0,:]
         else:
-            out, _ = self.feat(x)
+            out, prompt_loss = self.feat(x)
             out = out[:,0,:]
         out = out.view(out.size(0), -1)
         if not pen:
             out = self.last(out)
         if self.prompt is not None and train:
             return out, prompt_loss
+        elif train:
+            return out, prompt_loss
         else:
             return out
+
             
 def vit_pt_imnet(out_dim, block_division = None, prompt_flag = 'None', prompt_param=None):
     return ResNetZoo(num_classes=out_dim, pt=True, prompt_flag=prompt_flag, prompt_param=prompt_param)

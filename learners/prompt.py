@@ -26,14 +26,14 @@ class Prompt(NormalNN):
 
         # logits
         #logits, prompt_loss = self.model(inputs, train=s = self.model(inputs, train=True)
-        logits = self.model(inputs, train=True)
+        logits, ortho_loss = self.model(inputs, train=True)
         logits = logits[:,:self.valid_out_dim]
 
         # ce with heuristic
         logits[:,:self.last_valid_out_dim] = -float('inf')
         dw_cls = self.dw_k[-1 * torch.ones(targets.size()).long()]
         total_loss = self.criterion(logits, targets.long(), dw_cls)
-
+        total_loss += ortho_loss.sum()
         # ce loss
         #total_loss = total_loss + prompt_loss.sum()
 
@@ -51,7 +51,7 @@ class Prompt(NormalNN):
         # Multi-GPU
         if len(self.config['gpuid']) > 1:
             #print(dict(self.model.module.feat.named_parameters()))
-            params_to_opt = [self.model.module.feat.prompt] + list(self.model.module.feat.decoders.parameters()) + [self.model.module.feat.top_down_transform] + list(self.model.module.last.parameters())
+            params_to_opt = [self.model.module.feat.prompt] + list(self.model.module.feat.decoders.parameters()) + [self.model.module.feat.top_down_transform] + list(self.model.module.last.parameters()) + [self.model.module.feat.k] + [self.model.module.feat.a]
             #params_to_opt = list(self.model.module.feat.prompt) + list(self.model.module.feat.decoders.parameters()) + list(self.model.module.last.parameters())
             #params_to_opt = list(self.model.module.feat.decoders.parameters())  + list(self.model.module.last.parameters())
         else:

@@ -130,13 +130,11 @@ class NormalNN(nn.Module):
                 # reset
                 losses = AverageMeter()
                 acc = AverageMeter()
-        """
-        for name,param in self.model.module.feat.named_parameters():
-            if name.startswith("k") or name.startswith("a") or name.startswith("prompt"):
-                print(f"{name}.grad ",param.grad)
-                print(f"{name}.param ", param)
-                print(f"{name}.requires_grad ", param.requires_grad)
-        """
+            for name,param in self.model.module.feat.named_parameters():
+                if name.startswith("k") or name.startswith("a") or name.startswith("prompt") or name.startswith("decoders"):
+                    print(f"{name}.grad ",param.grad)
+                    print(f"{name}.param ", param)
+                    print(f"{name}.requires_grad ", param.requires_grad)
         self.model.eval()
 
         self.last_valid_out_dim = self.valid_out_dim

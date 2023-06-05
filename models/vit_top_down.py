@@ -20,6 +20,7 @@ from torch.nn.modules.utils import _pair
 import sys
 import numpy as np
 from .utils import tensor_prompt
+from .hsic import hsic_normalized as hsic
 _logger = logging.getLogger(__name__)
 
 
@@ -180,12 +181,12 @@ class VisionTransformer(nn.Module):
             for i in range(depth)])
         self.n_tasks = 10
         self.norm = norm_layer(embed_dim) if not use_fc_norm else nn.Identity()
-        self.decoders = nn.ModuleList([nn.ModuleList([Decode_Block(embed_dim) for _ in range(3)]) for _ in range(10)])
+        #self.decoders = nn.ModuleList([nn.ModuleList([Decode_Block(embed_dim) for _ in range(3)]) for _ in range(10)])
         #self.decoder_list = []
         #self.decoders = nn.ModuleList([Decode_Block(embed_dim) for _ in range(depth)])
         self.prompt = torch.nn.Parameter(torch.randn(self.n_tasks, self.embed_dim))
         self.top_down_transform = torch.nn.Parameter(torch.stack([torch.eye(self.embed_dim) for i in range(self.n_tasks)], dim = 0))
-        #self.decoders = nn.ModuleList([nn.Linear(self.embed_dim, self.embed_dim, bias = False) for i in range(self.n_tasks)])
+        self.decoders = nn.ModuleList([nn.Linear(self.embed_dim, self.embed_dim, bias = False) for i in range(self.n_tasks)])
         #self.prompt = torch.nn.Parameter(torch.randn(self.embed_dim))
         #self.top_down_transform = torch.nn.Parameter(torch.eye(self.embed_dim))
         self.task_count = 0
@@ -318,15 +319,14 @@ class VisionTransformer(nn.Module):
             mask = cos_sim.clamp(0, 1)
             x_ = x * mask
             x_ = x_ @ (self.top_down_transform[i].detach().clone() if i < self.task_count else self.top_down_transform[i])
+            #x_ = self.decoders[i](x_)
             x_ = x_.unsqueeze(1)
-            td  = self.feedback(x_, i)
-            x_sum.append(td)
-        x_sum = [torch.cat([x_sum[j][i] for j in range(len(x_sum))], dim = 1) for i in range(len(x_sum[0]))]
+            x_sum.append(x_)
+        x_sum = torch.cat(x_sum, dim=1)
 
         #print("x_sum:", x_sum.shape)
         # 加权
         #pt = int(self.k.shape[0] / (self.n_tasks))
-        """
         s = int(self.task_count)
         f = int((self.task_count + 1))
 
@@ -350,11 +350,10 @@ class VisionTransformer(nn.Module):
         #print("aq_k:", aq_k.shape)
         ## (b x 1 x k x 1) * [1 x plen x k x d] = (b x plen x d) -> prompt = plen x k x d
         
-        
-        x_sum = torch.einsum('bk,bkld->bkld', aq_k, x_sum)
-        """
+        t_sum = torch.einsum('bk,bkld->bkld', aq_k, x_sum)
         #td = self.feedback(x_sum)
-        td = [torch.sum(x_sum[i],dim=1) for i in range(len(x_sum))]
+        td = torch.sum(t_sum, dim=1)
+        td = [td for i in range(3)]
         """
             if i == 0:
                 td_sum = td
@@ -377,15 +376,36 @@ class VisionTransformer(nn.Module):
             x = x @ self.top_down_transform[:self.task_count]
         
         td = self.feedback(torch.sum(x, dim = 0))
-        loss = ortho_penalty(K)
-        loss += ortho_penalty(A)
-        loss += ortho_penalty(x_sum)
-        loss = 0.1 *loss
         """
-        loss = 0
+        #减少当前的之前与过去的差距
+        h_sum = [x_sum[:,i,:,:].reshape(x_sum.shape[0],-1) for i in range(x_sum.shape[1])]
+        for i in range(x_sum.shape[1]):
+            if i == 0:
+                hsic_loss = hsic(h_sum[x_sum.shape[1]-1], h_sum[i], 5)
+                continue
+            hsic_loss += hsic(h_sum[x_sum.shape[1]-1], h_sum[i], 5)
+        #h_sum = [a_querry[:,i,:].reshape(a_querry.shape[0],-1) for i in range(a_querry.shape[1])]
+        #hsic_loss = [hsic(h_sum[a_querry.shape[1]-1], h_sum[i], 5) for i in range(a_querry.shape[1]-1)]
+        """
+        if self.task_count>0:
+            print(h_sum[0].shape)
+            print(hsic_loss)
+        """
+        #print(hsic_loss)
+        #hsic_loss = sum(hsic_loss)
+        #print(hsic_loss)
+        #loss += ortho_penalty(self.top_down_transform)
         # second feedforward
         x = self.forward_features(input, td)
-
+        """
+        cos = torch.nn.CosineSimilarity(dim=2,eps=1e-07)
+        score = cos(x,x_old)
+        score = 1.0-torch.mean(score)
+        """
+        #loss = ortho_penalty(K)
+        #loss += ortho_penalty(A)
+        loss =  0.9*hsic_loss
+        #loss += 0.1*score
         #x = self.forward_head(x)
         output_each_iter.append(x)
         
